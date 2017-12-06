@@ -33,12 +33,17 @@ func main() {
 		fmt.Println("How to run:\n\tmjpeg-streamer [camera ID] [host:port]")
 		return
 	}
-	raspiAdaptor := raspi.NewAdaptor()
-	gopigo3 := g.NewDriver(raspiAdaptor)
+
 	// parse args
 	deviceID, _ = strconv.Atoi(os.Args[1])
 	host := os.Args[2]
 	xmlFile := os.Args[3]
+
+	raspiAdaptor := raspi.NewAdaptor()
+	gopigo3 := g.NewDriver(raspiAdaptor)
+
+	// create stream
+	stream = mjpeg.NewStream()
 
 	// open webcam
 	webcam, err = gocv.VideoCaptureDevice(deviceID)
@@ -110,16 +115,10 @@ func main() {
 			stream.UpdateJPEG(buf)
 		}
 
-		// create stream
-		stream = mjpeg.NewStream()
-
-		//go capture()
-
 		http.Handle("/", stream)
 
 		log.Fatal(http.ListenAndServe(host, nil))
 	}
-
 	robot := gobot.NewRobot("gopigo3", []gobot.Connection{raspiAdaptor},
 		[]gobot.Device{gopigo3}, work,
 	)
