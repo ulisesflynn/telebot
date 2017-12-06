@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +13,8 @@ import (
 	"gocv.io/x/gocv"
 )
 
+const MinimumArea = 3000
+
 var (
 	deviceID int
 	err      error
@@ -19,20 +23,6 @@ var (
 
 	stream *mjpeg.Stream
 )
-
-func capture() {
-	for {
-		if ok := webcam.Read(img); !ok {
-			fmt.Printf("cannot read device: %d\n", deviceID)
-			return
-		}
-		if img.Empty() {
-			continue
-		}
-		buf, _ := gocv.IMEncode(".jpg", img)
-		stream.UpdateJPEG(buf)
-	}
-}
 
 func main() {
 	if len(os.Args) < 3 {
@@ -59,8 +49,61 @@ func main() {
 	// create stream
 	stream = mjpeg.NewStream()
 
-	go capture()
+	img := gocv.NewMat()
+	defer img.Close()
 
+	imgDelta := gocv.NewMat()
+	defer imgDelta.Close()
+
+	imgThresh := gocv.NewMat()
+	defer imgThresh.Close()
+
+	mog2 := gocv.NewBackgroundSubtractorMOG2()
+	defer mog2.Close()
+
+	status := "Ready"
+
+	fmt.Printf("Start reading camera device: %v\n", deviceID)
+	go func() {
+		for {
+			if ok := webcam.Read(img); !ok {
+				fmt.Printf("Error cannot read device %d\n", deviceID)
+				return
+			}
+			if img.Empty() {
+				continue
+			}
+
+			status = "Ready"
+			statusColor := color.RGBA{0, 255, 0, 0}
+
+			// first phase of cleaning up image, obtain foreground only
+			mog2.Apply(img, imgDelta)
+
+			// remaining cleanup of the image to use for finding contours
+			gocv.Threshold(imgDelta, imgThresh, 25, 255, gocv.ThresholdBinary)
+			kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(3, 3))
+			gocv.Dilate(imgThresh, imgThresh, kernel)
+
+			contours := gocv.FindContours(imgThresh, gocv.RetrievalExternal, gocv.ChainApproxSimple)
+			for _, c := range contours {
+				area := gocv.ContourArea(c)
+				if area < MinimumArea {
+					continue
+				}
+
+				status = "Motion detected"
+				statusColor = color.RGBA{255, 0, 0, 0}
+				rect := gocv.BoundingRect(c)
+				gocv.Rectangle(img, rect, color.RGBA{255, 0, 0, 0}, 2)
+			}
+
+			gocv.PutText(img, status, image.Pt(10, 20), gocv.FontHersheyPlain, 1.2, statusColor, 2)
+
+			buf, _ := gocv.IMEncode(".jpg", img)
+			stream.UpdateJPEG(buf)
+		}
+	}()
 	http.Handle("/", stream)
 	log.Fatal(http.ListenAndServe(host, nil))
 }
