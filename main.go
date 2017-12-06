@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/saljam/mjpeg"
+	"gobot.io/x/gobot"
 	g "gobot.io/x/gobot/platforms/dexter/gopigo3"
 	"gobot.io/x/gobot/platforms/raspi"
 	"gocv.io/x/gocv"
@@ -24,23 +25,8 @@ var (
 	err      error
 	webcam   *gocv.VideoCapture
 	img      gocv.Mat
-
-	stream *mjpeg.Stream
+	stream   *mjpeg.Stream
 )
-
-// func capture() {
-// 	for {
-// 		if ok := webcam.Read(img); !ok {
-// 			fmt.Printf("cannot read device: %d\n", deviceID)
-// 			return
-// 		}
-// 		if img.Empty() {
-// 			continue
-// 		}
-// 		buf, _ := gocv.IMEncode(".jpg", img)
-// 		stream.UpdateJPEG(buf)
-// 	}
-// }
 
 func main() {
 	if len(os.Args) < 3 {
@@ -50,6 +36,10 @@ func main() {
 
 	raspiAdaptor := raspi.NewAdaptor()
 	gopigo3 := g.NewDriver(raspiAdaptor)
+	robot := gobot.NewRobot("gopigo3", []gobot.Connection{raspiAdaptor},
+		[]gobot.Device{gopigo3},
+	)
+	robot.Start()
 
 	// parse args
 	deviceID, _ = strconv.Atoi(os.Args[1])
