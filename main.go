@@ -10,9 +10,6 @@ import (
 	"strconv"
 
 	"github.com/saljam/mjpeg"
-	"gobot.io/x/gobot"
-	g "gobot.io/x/gobot/platforms/dexter/gopigo3"
-	"gobot.io/x/gobot/platforms/raspi"
 	"gocv.io/x/gocv"
 )
 
@@ -38,12 +35,6 @@ func main() {
 	deviceID, _ = strconv.Atoi(os.Args[1])
 	host := os.Args[2]
 	xmlFile := os.Args[3]
-
-	raspiAdaptor := raspi.NewAdaptor()
-	gopigo3 := g.NewDriver(raspiAdaptor)
-
-	// create stream
-	stream = mjpeg.NewStream()
 
 	// open webcam
 	webcam, err = gocv.VideoCaptureDevice(deviceID)
@@ -74,54 +65,52 @@ func main() {
 
 	classifier.Load(xmlFile)
 	status := "Ready"
-	work := func() {
-		for {
-			if ok := webcam.Read(img); !ok {
-				fmt.Printf("Error cannot read device %d\n", deviceID)
-				return
-			}
-			if img.Empty() {
+
+	for {
+		if ok := webcam.Read(img); !ok {
+			fmt.Printf("Error cannot read device %d\n", deviceID)
+			return
+		}
+		if img.Empty() {
+			continue
+		}
+
+		status = "Ready"
+		statusColor := color.RGBA{0, 255, 0, 0}
+
+		// first phase of cleaning up image, obtain foreground only
+		mog2.Apply(img, imgDelta)
+
+		// remaining cleanup of the image to use for finding contours
+		gocv.Threshold(imgDelta, imgThresh, 25, 255, gocv.ThresholdBinary)
+		kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(3, 3))
+		gocv.Dilate(imgThresh, imgThresh, kernel)
+
+		contours := gocv.FindContours(imgThresh, gocv.RetrievalExternal, gocv.ChainApproxSimple)
+		for _, c := range contours {
+			area := gocv.ContourArea(c)
+			if area < MinimumArea {
 				continue
 			}
 
-			status = "Ready"
-			statusColor := color.RGBA{0, 255, 0, 0}
-
-			// first phase of cleaning up image, obtain foreground only
-			mog2.Apply(img, imgDelta)
-
-			// remaining cleanup of the image to use for finding contours
-			gocv.Threshold(imgDelta, imgThresh, 25, 255, gocv.ThresholdBinary)
-			kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(3, 3))
-			gocv.Dilate(imgThresh, imgThresh, kernel)
-
-			contours := gocv.FindContours(imgThresh, gocv.RetrievalExternal, gocv.ChainApproxSimple)
-			for _, c := range contours {
-				area := gocv.ContourArea(c)
-				if area < MinimumArea {
-					continue
-				}
-
-				status = "Motion detected"
-				statusColor = color.RGBA{255, 0, 0, 0}
-				rect := gocv.BoundingRect(c)
-				gocv.Rectangle(img, rect, color.RGBA{255, 0, 0, 0}, 2)
-				gopigo3.SetLED(g.LED_EYE_RIGHT, 0xFF, 0x00, 0x00)
-			}
-			gopigo3.SetLED(g.LED_EYE_RIGHT, 0x00, 0x00, 0x00)
-			gocv.PutText(img, status, image.Pt(10, 20), gocv.FontHersheyPlain, 1.2, statusColor, 2)
-
-			buf, _ := gocv.IMEncode(".jpg", img)
-			stream.UpdateJPEG(buf)
+			status = "Motion detected"
+			statusColor = color.RGBA{255, 0, 0, 0}
+			rect := gocv.BoundingRect(c)
+			gocv.Rectangle(img, rect, color.RGBA{255, 0, 0, 0}, 2)
 		}
+		gocv.PutText(img, status, image.Pt(10, 20), gocv.FontHersheyPlain, 1.2, statusColor, 2)
 
-		http.Handle("/", stream)
-
-		log.Fatal(http.ListenAndServe(host, nil))
+		buf, _ := gocv.IMEncode(".jpg", img)
+		stream.UpdateJPEG(buf)
 	}
-	robot := gobot.NewRobot("gopigo3", []gobot.Connection{raspiAdaptor},
-		[]gobot.Device{gopigo3}, work,
-	)
-	robot.Start()
+
+	// create stream
+	stream = mjpeg.NewStream()
+
+	//go capture()
+
+	http.Handle("/", stream)
+
+	log.Fatal(http.ListenAndServe(host, nil))
 
 }
