@@ -31,6 +31,9 @@ func main() {
 		return
 	}
 
+	// create stream
+	stream = mjpeg.NewStream()
+
 	// parse args
 	deviceID, _ = strconv.Atoi(os.Args[1])
 	host := os.Args[2]
@@ -103,9 +106,6 @@ func main() {
 		buf, _ := gocv.IMEncode(".jpg", img)
 		stream.UpdateJPEG(buf)
 	}
-
-	// create stream
-	stream = mjpeg.NewStream()
 
 	//go capture()
 
